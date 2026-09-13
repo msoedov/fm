@@ -1,4 +1,4 @@
-module fm
+module github.com/msoedov/fm
 
 go 1.26.1
 

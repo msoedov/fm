@@ -2,9 +2,22 @@
 
 A small Go terminal file manager inspired by [ranger](https://github.com/ranger/ranger). Parent, current directory, and preview panes; directories sort first. On narrower terminals the parent pane is hidden.
 
-## Run
+## Install with Go
 
-Requires Go 1.26 or newer and an interactive terminal on macOS or Linux.
+Requires Go 1.26.1 or newer and an interactive terminal on macOS or Linux.
+
+```sh
+go install github.com/msoedov/fm@latest
+fm                   # current directory
+fm ~/Downloads       # chosen directory
+```
+
+Go installs the binary to `GOBIN` when set, otherwise to `$(go env GOPATH)/bin`
+(usually `~/go/bin`). Add that directory to your `PATH`.
+
+## Build from source
+
+Clone the repository and run:
 
 ```sh
 make b               # build ./fm
