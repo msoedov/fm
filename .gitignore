@@ -1,0 +1,9 @@
+# Build and test artifacts
+/fm
+/fm.exe
+*.test
+/coverage.out
+/coverage.html
+
+# macOS metadata
+.DS_Store
