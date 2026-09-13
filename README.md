@@ -51,3 +51,7 @@ Uses tcell for terminal input/rendering and Chroma for highlighting. No external
 go test ./...
 go vet ./...
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Alexander Myasoedov.
