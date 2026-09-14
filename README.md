@@ -38,6 +38,8 @@ Without Make, build with `go build -o fm .`.
 
 Text previews use Chroma syntax highlighting and never open an editor or execute files. Previews read at most 256 KiB, mark truncation, and identify binary and special files without displaying their contents. Tabs display as four spaces. Directory previews list children. File content changes appear after refresh.
 
+`c` copies the selected path to the clipboard; `cc` copies the file content instead (regular files up to 64 MiB). Uses `pbcopy`, `wl-copy`, `xclip`, or `xsel`, falling back to the terminal's OSC 52 clipboard.
+
 Deletion is permanent, including all contents of non-empty directories. Deleting a symlink removes the link, not its target. Replacements detected before deletion are rejected.
 
 Uses tcell for terminal input/rendering and Chroma for highlighting. No external preview commands are required.

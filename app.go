@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -17,6 +19,11 @@ var (
 	selectedStyle = normal.Background(tcell.ColorDarkSlateGray).Bold(true)
 )
 
+const copyLimit = 64 << 20
+
+// Native tools first; OSC 52 through tcell is the fallback for terminals that support it.
+var clipboardCommands = [][]string{{"pbcopy"}, {"wl-copy"}, {"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}}
+
 type app struct {
 	screen                    tcell.Screen
 	cwd                       string
@@ -29,6 +36,7 @@ type app struct {
 	message                   string
 	pending                   *entry
 	deletePrefix              *entry
+	copyPrefix                string
 }
 
 func (a *app) reload(selectName string) error {
@@ -104,6 +112,14 @@ func (a *app) key(ev *tcell.EventKey) bool {
 			return false
 		}
 	}
+	if a.copyPrefix != "" {
+		path := a.copyPrefix
+		a.copyPrefix = ""
+		if ev.Key() == tcell.KeyRune && ev.Rune() == 'c' {
+			a.copyContent(path)
+			return false
+		}
+	}
 	if a.pending != nil {
 		if ev.Key() == tcell.KeyRune && ev.Rune() == 'y' {
 			target := *a.pending
@@ -158,6 +174,8 @@ func (a *app) key(ev *tcell.EventKey) bool {
 				a.previewOffset = 0
 			case 'G':
 				a.scroll(len(a.preview.lines))
+			case 'c':
+				a.copyPath()
 			case '?':
 				a.help = true
 			}
@@ -220,6 +238,8 @@ func (a *app) key(ev *tcell.EventKey) bool {
 				copy := *e
 				a.deletePrefix = &copy
 			}
+		case 'c':
+			a.copyPath()
 		case '?':
 			a.help = true
 		case '~':
@@ -249,6 +269,50 @@ func (a *app) open() {
 			a.viewer = true
 		}
 	}
+}
+
+func (a *app) copyPath() {
+	e := a.current()
+	if e == nil {
+		return
+	}
+	path := filepath.Join(a.cwd, e.name)
+	a.copyPrefix = path
+	a.copyToClipboard([]byte(path))
+	a.message = "Copied path " + path
+}
+
+func (a *app) copyContent(path string) {
+	info, err := os.Stat(path)
+	if err == nil && !info.Mode().IsRegular() {
+		err = fmt.Errorf("not a regular file")
+	} else if err == nil && info.Size() > copyLimit {
+		err = fmt.Errorf("file larger than %d MiB", copyLimit>>20)
+	}
+	var data []byte
+	if err == nil {
+		data, err = os.ReadFile(path)
+	}
+	if err != nil {
+		a.message = "Copy failed: " + err.Error()
+		return
+	}
+	a.copyToClipboard(data)
+	a.message = fmt.Sprintf("Copied %d B from %s", len(data), filepath.Base(path))
+}
+
+func (a *app) copyToClipboard(data []byte) {
+	for _, c := range clipboardCommands {
+		if _, err := exec.LookPath(c[0]); err != nil {
+			continue
+		}
+		cmd := exec.Command(c[0], c[1:]...)
+		cmd.Stdin = bytes.NewReader(data)
+		if cmd.Run() == nil {
+			return
+		}
+	}
+	a.screen.SetClipboard(data)
 }
 
 func (a *app) requestDelete() {
@@ -350,7 +414,7 @@ func (a *app) draw() {
 	a.text(1, 0, w-2, "fm  "+a.cwd, accent)
 	height := h - 5
 	if a.help {
-		lines := []string{"Keys", "j/k or ↑/↓       Select file", "h/←              Parent directory", "l/→/Enter        Enter directory / read-only viewer", "g/G, Home/End    First / last entry", "PgUp/PgDn        Page through entries or viewer", "J/K, Ctrl-D/U    Scroll preview", "Viewer h/l, ←/→  Scroll horizontally", ".                Toggle hidden files", "~                Home directory", "r / Ctrl-L       Refresh", "dd               Delete immediately (Delete key confirms)", "q / Esc          Close viewer (q quits browser)", "?                Help; any key returns"}
+		lines := []string{"Keys", "j/k or ↑/↓       Select file", "h/←              Parent directory", "l/→/Enter        Enter directory / read-only viewer", "g/G, Home/End    First / last entry", "PgUp/PgDn        Page through entries or viewer", "J/K, Ctrl-D/U    Scroll preview", "Viewer h/l, ←/→  Scroll horizontally", ".                Toggle hidden files", "~                Home directory", "r / Ctrl-L       Refresh", "dd               Delete immediately (Delete key confirms)", "c / cc           Copy path / file content", "q / Esc          Close viewer (q quits browser)", "?                Help; any key returns"}
 		for i, line := range lines {
 			if i+2 < h-2 {
 				a.text(2, i+2, w-4, line, normal)
@@ -402,9 +466,9 @@ func (a *app) draw() {
 		a.text(1, h-1, w-2, "y: confirm deletion · any other key: cancel", normal.Foreground(tcell.ColorOrange))
 	} else {
 		a.text(1, h-2, w-2, a.message, normal.Foreground(tcell.ColorOrange))
-		keys := "hjkl/↑↓←→ navigate · Enter preview · dd delete · . hidden · ? help · q quit"
+		keys := "hjkl/↑↓←→ navigate · Enter preview · dd delete · c/cc copy path/content · . hidden · ? help · q quit"
 		if a.viewer {
-			keys = "READ ONLY · j/k scroll · h/l pan · PgUp/PgDn page · q/Esc back"
+			keys = "READ ONLY · j/k scroll · h/l pan · c/cc copy path/content · q/Esc back"
 		}
 		if a.hidden {
 			keys = strings.ReplaceAll(keys, ". hidden", ". hide dotfiles")

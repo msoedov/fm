@@ -197,3 +197,45 @@ func TestNavigationViewerAndConfirmation(t *testing.T) {
 		a.draw()
 	}
 }
+
+func TestCopy(t *testing.T) {
+	clipboardCommands = nil
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.txt"), "hello")
+	if err := os.Mkdir(filepath.Join(dir, "b-dir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, keys, clipboard, message string
+		viewer                         bool
+	}{
+		{"b-dir", "c", filepath.Join(dir, "b-dir"), "Copied path " + filepath.Join(dir, "b-dir"), false},
+		{"a.txt", "c", filepath.Join(dir, "a.txt"), "Copied path " + filepath.Join(dir, "a.txt"), false},
+		{"a.txt", "cc", "hello", "Copied 5 B from a.txt", false},
+		{"a.txt", "cc", "hello", "Copied 5 B from a.txt", true},
+		{"a.txt", "cj", filepath.Join(dir, "a.txt"), "", false},
+		{"b-dir", "cc", filepath.Join(dir, "b-dir"), "Copy failed: not a regular file", false},
+	} {
+		t.Run(tc.name+" "+tc.keys, func(t *testing.T) {
+			s := tcell.NewSimulationScreen("UTF-8")
+			if err := s.Init(); err != nil {
+				t.Fatal(err)
+			}
+			defer s.Fini()
+			a := &app{screen: s, cwd: dir}
+			if err := a.reload(tc.name); err != nil {
+				t.Fatal(err)
+			}
+			a.viewer = tc.viewer
+			for _, r := range tc.keys {
+				a.key(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+			}
+			if got := string(s.GetClipboardData()); got != tc.clipboard {
+				t.Fatalf("clipboard %q, want %q", got, tc.clipboard)
+			}
+			if a.message != tc.message {
+				t.Fatalf("message %q, want %q", a.message, tc.message)
+			}
+		})
+	}
+}
