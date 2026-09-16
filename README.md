@@ -34,7 +34,23 @@ Override the install location with `make i PREFIX=/usr/local` or
 
 Without Make, build with `go build -o fm .`.
 
+## Change directory on quit
+
+`--choosedir FILE` writes the last directory to `FILE` when fm quits. Add this to `~/.zshrc` or `~/.bashrc`:
+
+```sh
+fm() {
+  local tmp
+  tmp=$(mktemp) || return
+  command fm --choosedir "$tmp" "$@"
+  [ -s "$tmp" ] && cd -- "$(cat "$tmp")"
+  rm -f "$tmp"
+}
+```
+
 ## Behavior
+
+`e` opens the selection in `$VISUAL`, then `$EDITOR`, then `vi`, and refreshes afterwards. `o` opens it with `open` on macOS or `xdg-open` on Linux.
 
 Text previews use Chroma syntax highlighting and never open an editor or execute files. Previews read at most 256 KiB, mark truncation, and identify binary and special files without displaying their contents. Tabs display as four spaces. Directory previews list children. File content changes appear after refresh.
 

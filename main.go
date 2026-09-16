@@ -10,8 +10,10 @@ import (
 )
 
 func run() error {
+	choosedir := flag.String("choosedir", "", "write the last directory to `file` on quit")
 	flag.Usage = func() {
-		fmt.Fprintln(flag.CommandLine.Output(), "Usage: fm [directory]\nA read-only terminal file browser. Press ? for keys.")
+		fmt.Fprintln(flag.CommandLine.Output(), "Usage: fm [--choosedir file] [directory]\nA terminal file browser. Press ? for keys.")
+		flag.PrintDefaults()
 	}
 	flag.Parse()
 	if flag.NArg() > 1 {
@@ -46,9 +48,13 @@ func run() error {
 		case *tcell.EventResize:
 			s.Sync()
 		case *tcell.EventKey:
-			if a.key(ev) {
+			if !a.key(ev) {
+				continue
+			}
+			if *choosedir == "" {
 				return nil
 			}
+			return os.WriteFile(*choosedir, []byte(a.cwd), 0600)
 		case nil:
 			return nil
 		}

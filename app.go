@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -23,6 +24,13 @@ const copyLimit = 64 << 20
 
 // Native tools first; OSC 52 through tcell is the fallback for terminals that support it.
 var clipboardCommands = [][]string{{"pbcopy"}, {"wl-copy"}, {"xclip", "-selection", "clipboard"}, {"xsel", "--clipboard", "--input"}}
+
+var opener = func() string {
+	if runtime.GOOS == "darwin" {
+		return "open"
+	}
+	return "xdg-open"
+}()
 
 type app struct {
 	screen                    tcell.Screen
@@ -176,6 +184,10 @@ func (a *app) key(ev *tcell.EventKey) bool {
 				a.scroll(len(a.preview.lines))
 			case 'c':
 				a.copyPath()
+			case 'e':
+				a.edit()
+			case 'o':
+				a.openExternal()
 			case '?':
 				a.help = true
 			}
@@ -240,6 +252,10 @@ func (a *app) key(ev *tcell.EventKey) bool {
 			}
 		case 'c':
 			a.copyPath()
+		case 'e':
+			a.edit()
+		case 'o':
+			a.openExternal()
 		case '?':
 			a.help = true
 		case '~':
@@ -269,6 +285,43 @@ func (a *app) open() {
 			a.viewer = true
 		}
 	}
+}
+
+// The shell expands $VISUAL/$EDITOR so values with arguments like "code -w" work.
+func (a *app) edit() {
+	e := a.current()
+	if e == nil {
+		return
+	}
+	cmd := exec.Command("sh", "-c", `${VISUAL:-${EDITOR:-vi}} "$1"`, "sh", filepath.Join(a.cwd, e.name))
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := a.screen.Suspend(); err != nil {
+		a.message = "Editor failed: " + err.Error()
+		return
+	}
+	err := cmd.Run()
+	if resumeErr := a.screen.Resume(); err == nil {
+		err = resumeErr
+	}
+	a.screen.Sync()
+	a.refresh()
+	if err != nil {
+		a.message = "Editor failed: " + err.Error()
+	}
+}
+
+func (a *app) openExternal() {
+	e := a.current()
+	if e == nil {
+		return
+	}
+	cmd := exec.Command(opener, filepath.Join(a.cwd, e.name))
+	if err := cmd.Start(); err != nil {
+		a.message = "Open failed: " + err.Error()
+		return
+	}
+	go cmd.Wait()
+	a.message = "Opened " + e.name
 }
 
 func (a *app) copyPath() {
@@ -414,7 +467,7 @@ func (a *app) draw() {
 	a.text(1, 0, w-2, "fm  "+a.cwd, accent)
 	height := h - 5
 	if a.help {
-		lines := []string{"Keys", "j/k or ↑/↓       Select file", "h/←              Parent directory", "l/→/Enter        Enter directory / read-only viewer", "g/G, Home/End    First / last entry", "PgUp/PgDn        Page through entries or viewer", "J/K, Ctrl-D/U    Scroll preview", "Viewer h/l, ←/→  Scroll horizontally", ".                Toggle hidden files", "~                Home directory", "r / Ctrl-L       Refresh", "dd               Delete immediately (Delete key confirms)", "c / cc           Copy path / file content", "q / Esc          Close viewer (q quits browser)", "?                Help; any key returns"}
+		lines := []string{"Keys", "j/k or ↑/↓       Select file", "h/←              Parent directory", "l/→/Enter        Enter directory / read-only viewer", "g/G, Home/End    First / last entry", "PgUp/PgDn        Page through entries or viewer", "J/K, Ctrl-D/U    Scroll preview", "Viewer h/l, ←/→  Scroll horizontally", ".                Toggle hidden files", "~                Home directory", "r / Ctrl-L       Refresh", "dd               Delete immediately (Delete key confirms)", "c / cc           Copy path / file content", "e                Edit in $VISUAL / $EDITOR", "o                Open with system app", "q / Esc          Close viewer (q quits browser)", "?                Help; any key returns"}
 		for i, line := range lines {
 			if i+2 < h-2 {
 				a.text(2, i+2, w-4, line, normal)
@@ -466,9 +519,9 @@ func (a *app) draw() {
 		a.text(1, h-1, w-2, "y: confirm deletion · any other key: cancel", normal.Foreground(tcell.ColorOrange))
 	} else {
 		a.text(1, h-2, w-2, a.message, normal.Foreground(tcell.ColorOrange))
-		keys := "hjkl/↑↓←→ navigate · Enter preview · dd delete · c/cc copy path/content · . hidden · ? help · q quit"
+		keys := "hjkl/↑↓←→ navigate · Enter preview · e edit · o open · dd delete · c/cc copy · . hidden · ? help · q quit"
 		if a.viewer {
-			keys = "READ ONLY · j/k scroll · h/l pan · c/cc copy path/content · q/Esc back"
+			keys = "READ ONLY · j/k scroll · h/l pan · e edit · o open · c/cc copy · q/Esc back"
 		}
 		if a.hidden {
 			keys = strings.ReplaceAll(keys, ". hidden", ". hide dotfiles")

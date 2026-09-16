@@ -239,3 +239,71 @@ func TestCopy(t *testing.T) {
 		})
 	}
 }
+
+func TestEditAndOpen(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "a.txt")
+	writeFile(t, file, "old")
+	editor := filepath.Join(t.TempDir(), "editor")
+	writeFile(t, editor, "#!/bin/sh\nprintf new > \"$1\"\n")
+	if err := os.Chmod(editor, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, key, editor, opener, content, message string
+		viewer                                      bool
+	}{
+		{"edit", "e", editor, "", "new", "", false},
+		{"edit from viewer", "e", editor, "", "new", "", true},
+		{"edit args", "e", "sh " + editor, "", "new", "", false},
+		{"edit fails", "e", "false", "", "old", "Editor failed: exit status 1", false},
+		{"open", "o", "", "true", "old", "Opened a.txt", false},
+		{"open from viewer", "o", "", "true", "old", "Opened a.txt", true},
+		{"open missing", "o", "", filepath.Join(dir, "missing"), "old", "Open failed: fork/exec " + filepath.Join(dir, "missing") + ": no such file or directory", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeFile(t, file, "old")
+			t.Setenv("VISUAL", "")
+			t.Setenv("EDITOR", tc.editor)
+			opener = tc.opener
+			s := tcell.NewSimulationScreen("UTF-8")
+			if err := s.Init(); err != nil {
+				t.Fatal(err)
+			}
+			defer s.Fini()
+			a := &app{screen: s, cwd: dir, viewer: tc.viewer}
+			if err := a.reload("a.txt"); err != nil {
+				t.Fatal(err)
+			}
+			a.key(tcell.NewEventKey(tcell.KeyRune, rune(tc.key[0]), tcell.ModNone))
+			data, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != tc.content || a.message != tc.message {
+				t.Fatalf("content %q message %q, want %q %q", data, a.message, tc.content, tc.message)
+			}
+			if tc.key == "e" && tc.content == "new" && a.preview.lines[0][0].text != "new" {
+				t.Fatalf("preview not refreshed: %+v", a.preview.lines)
+			}
+		})
+	}
+}
+
+func TestEditEmptyDirectory(t *testing.T) {
+	s := tcell.NewSimulationScreen("UTF-8")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	a := &app{screen: s, cwd: t.TempDir()}
+	if err := a.reload(""); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range "eo" {
+		a.key(tcell.NewEventKey(tcell.KeyRune, r, tcell.ModNone))
+	}
+	if a.message != "" {
+		t.Fatalf("message %q", a.message)
+	}
+}
